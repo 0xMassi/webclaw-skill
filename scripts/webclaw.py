@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """webclaw CLI wrapper for OpenClaw agents.
 
+Smart fetch: tries local HTTP first, falls back to webclaw cloud API
+when bot protection or JS rendering is detected. Zero dependencies.
+
 Usage:
-  python3 scripts/webclaw.py scrape <url> [--format markdown|text|llm|json] [--main] [--no-cache]
+  python3 scripts/webclaw.py scrape <url> [--format markdown|text|llm|json] [--main] [--no-cache] [--cloud]
   python3 scripts/webclaw.py crawl <url> [--depth N] [--pages N] [--sitemap]
   python3 scripts/webclaw.py crawl-status <job_id>
   python3 scripts/webclaw.py map <url>
@@ -13,33 +16,130 @@ Usage:
   python3 scripts/webclaw.py brand <url>
 """
 
+import html.parser
 import json
 import os
+import re
 import sys
 import urllib.request
 import urllib.error
 
 API_BASE = "https://api.webclaw.io/v1"
 
+# --- Antibot detection patterns (ported from webclaw-server/src/antibot.rs) ---
+
+_CF_PATTERNS = [
+    "_cf_chl_opt", "challenge-platform", "cf-spinner",
+    "cf-turnstile", "challenges.cloudflare.com/turnstile",
+]
+_DATADOME_PATTERNS = [
+    "geo.captcha-delivery.com", "captcha-delivery.com/captcha",
+]
+_AWS_PATTERNS = ["awswaf-captcha", "aws-waf-client-browser"]
+_HCAPTCHA_PATTERNS = ["hcaptcha.com"]
+_SPA_MARKERS = [
+    "react-app", 'id="__next"', 'id="root"', 'id="app"',
+    "__next_data__", "nuxt", "ng-app",
+]
+
+
+def is_bot_protected(html_text):
+    """Check if HTML looks like a bot protection challenge page."""
+    low = html_text.lower()
+
+    # Cloudflare challenge
+    if "_cf_chl_opt" in low or "challenge-platform" in low:
+        return True
+    if ("just a moment" in low or "checking your browser" in low) and "cf-spinner" in low:
+        return True
+    if ("cf-turnstile" in low or "challenges.cloudflare.com/turnstile" in low) and len(html_text) < 100_000:
+        return True
+
+    # DataDome
+    if "geo.captcha-delivery.com" in low or "captcha-delivery.com/captcha" in low:
+        return True
+
+    # AWS WAF
+    if "awswaf-captcha" in low or "aws-waf-client-browser" in low:
+        return True
+
+    # hCaptcha on short pages
+    if "hcaptcha.com" in low and "h-captcha" in low and len(html_text) < 50_000:
+        return True
+
+    return False
+
+
+def needs_js_rendering(word_count, html_text):
+    """Check if page likely needs JS rendering."""
+    if "<script" not in html_text:
+        return False
+    if word_count < 50 and len(html_text) > 5_000:
+        return True
+    if word_count < 800 and len(html_text) > 50_000:
+        low = html_text.lower()
+        return any(m in low for m in _SPA_MARKERS)
+    return False
+
+
+# --- Simple HTML text extractor (stdlib only) ---
+
+class _TextExtractor(html.parser.HTMLParser):
+    """Extract visible text from HTML, skipping script/style tags."""
+    _skip = {"script", "style", "noscript", "svg", "head"}
+
+    def __init__(self):
+        super().__init__()
+        self._pieces = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._skip:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag):
+        if tag in self._skip and self._skip_depth > 0:
+            self._skip_depth -= 1
+
+    def handle_data(self, data):
+        if self._skip_depth == 0:
+            text = data.strip()
+            if text:
+                self._pieces.append(text)
+
+    def get_text(self):
+        return "\n".join(self._pieces)
+
+
+def extract_text(html_text):
+    """Extract plain text from HTML."""
+    parser = _TextExtractor()
+    try:
+        parser.feed(html_text)
+    except Exception:
+        pass
+    return parser.get_text()
+
+
+# --- API client ---
 
 def get_api_key():
     key = os.environ.get("WEBCLAW_API_KEY", "")
     if not key:
-        # Check workspace secrets (OpenClaw convention)
         for path in ["workspace/secrets/webclaw_api_key", "secrets/webclaw_api_key"]:
             if os.path.isfile(path):
                 with open(path) as f:
                     key = f.read().strip()
                 if key:
                     break
-    if not key:
-        print("Error: WEBCLAW_API_KEY not set. Get one at https://webclaw.io", file=sys.stderr)
-        sys.exit(1)
     return key
 
 
 def api(endpoint, body):
     key = get_api_key()
+    if not key:
+        print("Error: WEBCLAW_API_KEY not set. Get one at https://webclaw.io", file=sys.stderr)
+        sys.exit(1)
     data = json.dumps(body).encode()
     req = urllib.request.Request(
         f"{API_BASE}/{endpoint}",
@@ -53,17 +153,20 @@ def api(endpoint, body):
         with urllib.request.urlopen(req, timeout=120) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
-        body = e.read().decode()
+        body_text = e.read().decode()
         try:
-            err = json.loads(body)
-            print(f"Error {e.code}: {err.get('error', body)}", file=sys.stderr)
+            err = json.loads(body_text)
+            print(f"Error {e.code}: {err.get('error', body_text)}", file=sys.stderr)
         except json.JSONDecodeError:
-            print(f"Error {e.code}: {body}", file=sys.stderr)
+            print(f"Error {e.code}: {body_text}", file=sys.stderr)
         sys.exit(1)
 
 
 def api_get(endpoint):
     key = get_api_key()
+    if not key:
+        print("Error: WEBCLAW_API_KEY not set. Get one at https://webclaw.io", file=sys.stderr)
+        sys.exit(1)
     req = urllib.request.Request(
         f"{API_BASE}/{endpoint}",
         headers={"Authorization": f"Bearer {key}"},
@@ -72,16 +175,82 @@ def api_get(endpoint):
         with urllib.request.urlopen(req, timeout=120) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
-        body = e.read().decode()
-        print(f"Error {e.code}: {body}", file=sys.stderr)
+        body_text = e.read().decode()
+        print(f"Error {e.code}: {body_text}", file=sys.stderr)
         sys.exit(1)
 
+
+# --- Smart fetch: local first, cloud fallback ---
+
+def local_fetch(url):
+    """Try fetching a URL locally. Returns (html, final_url) or raises."""
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    })
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        html_bytes = resp.read()
+        # Try to detect encoding
+        content_type = resp.headers.get("Content-Type", "")
+        charset = "utf-8"
+        if "charset=" in content_type:
+            charset = content_type.split("charset=")[-1].split(";")[0].strip()
+        try:
+            html_text = html_bytes.decode(charset)
+        except (UnicodeDecodeError, LookupError):
+            html_text = html_bytes.decode("utf-8", errors="replace")
+        return html_text, resp.url
+
+
+def smart_scrape(url, force_cloud=False, **api_kwargs):
+    """
+    Smart fetch: try local first, fall back to cloud API if blocked.
+
+    Returns the content string (text extracted locally or from API).
+    """
+    if force_cloud:
+        return api("scrape", {"url": url, **api_kwargs})
+
+    # Step 1: Try local fetch
+    try:
+        html_text, final_url = local_fetch(url)
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
+        # Network error or HTTP error — try cloud
+        print(f"Local fetch failed ({e}), trying cloud API...", file=sys.stderr)
+        return api("scrape", {"url": url, **api_kwargs})
+
+    # Step 2: Check for bot protection
+    if is_bot_protected(html_text):
+        print("Bot protection detected, using cloud API...", file=sys.stderr)
+        return api("scrape", {"url": url, **api_kwargs})
+
+    # Step 3: Extract text and check for JS rendering
+    text = extract_text(html_text)
+    word_count = len(text.split())
+
+    if needs_js_rendering(word_count, html_text):
+        print("JS-rendered page detected, using cloud API...", file=sys.stderr)
+        return api("scrape", {"url": url, **api_kwargs})
+
+    # Step 4: Local extraction succeeded — return as pseudo-API response
+    # (No API credits used)
+    return {
+        "url": final_url,
+        "markdown": text,  # Basic text extraction (not as good as webclaw-core, but free)
+        "text": text,
+        "_source": "local",
+    }
+
+
+# --- Commands ---
 
 def cmd_scrape(args):
     url = args[0]
     fmt = "markdown"
     main_only = False
     no_cache = False
+    force_cloud = False
     include = []
     exclude = []
 
@@ -96,6 +265,9 @@ def cmd_scrape(args):
         elif args[i] == "--no-cache":
             no_cache = True
             i += 1
+        elif args[i] == "--cloud":
+            force_cloud = True
+            i += 1
         elif args[i] == "--include" and i + 1 < len(args):
             include = args[i + 1].split(",")
             i += 2
@@ -105,20 +277,27 @@ def cmd_scrape(args):
         else:
             i += 1
 
-    body = {"url": url, "formats": [fmt]}
+    api_kwargs = {"formats": [fmt]}
     if main_only:
-        body["only_main_content"] = True
+        api_kwargs["only_main_content"] = True
     if no_cache:
-        body["no_cache"] = True
+        api_kwargs["no_cache"] = True
     if include:
-        body["include_selectors"] = include
+        api_kwargs["include_selectors"] = include
     if exclude:
-        body["exclude_selectors"] = exclude
+        api_kwargs["exclude_selectors"] = exclude
 
-    result = api("scrape", body)
+    # Use smart fetch for scrape (unless selectors are used, then always cloud)
+    if include or exclude or main_only or fmt in ("llm", "json"):
+        force_cloud = True
 
-    # Print the requested format's content
-    content = result.get(fmt) or result.get("markdown") or ""
+    result = smart_scrape(url, force_cloud=force_cloud, **api_kwargs)
+
+    source = result.get("_source", "cloud")
+    if source == "local":
+        print(f"[local extraction - 0 credits used]", file=sys.stderr)
+
+    content = result.get(fmt) or result.get("markdown") or result.get("text") or ""
     if content:
         print(content)
     else:

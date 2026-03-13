@@ -353,11 +353,24 @@ Response:
 - **Use `extract` with a JSON schema** for reliable structured output (e.g., pricing tables, product specs, contact info).
 - **Antibot bypass is automatic** — no extra configuration needed. Works on Cloudflare, DataDome, AWS WAF, and JS-rendered SPAs.
 
+## Smart Fetch Architecture
+
+The webclaw MCP server uses a **local-first** approach:
+
+1. **Local fetch** — fast, free, no API credits used (~80% of sites)
+2. **Cloud API fallback** — automatic when bot protection or JS rendering is detected
+
+This means:
+- Most scrapes cost zero credits (local extraction)
+- Cloudflare, DataDome, AWS WAF sites automatically fall back to the cloud API
+- JS-rendered SPAs (React, Next.js, Vue) also fall back automatically
+- Set `WEBCLAW_API_KEY` to enable cloud fallback
+
 ## vs web_fetch
 
 | | webclaw | web_fetch |
 |---|---------|-----------|
-| Cloudflare bypass | Automatic | Fails (403) |
+| Cloudflare bypass | Automatic (cloud fallback) | Fails (403) |
 | JS-rendered pages | Automatic fallback | Readability only |
 | Output quality | 20-step optimization pipeline | Basic HTML parsing |
 | Structured extraction | LLM-powered, schema-based | None |
