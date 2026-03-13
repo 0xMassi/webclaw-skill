@@ -86,8 +86,7 @@ curl -X POST https://api.webclaw.io/v1/scrape \
 ```json
 {
   "antibot": {
-    "solver": "cloudflare",
-    "challenge": "turnstile",
+    "bypass": true,
     "elapsed_ms": 3200
   }
 }
