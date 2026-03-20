@@ -1,6 +1,6 @@
 ---
 name: webclaw
-description: Web extraction engine with antibot bypass. Scrape, crawl, extract, summarize, map, diff, and analyze any URL — including Cloudflare-protected sites. Use when you need reliable web content, the built-in web_fetch fails, or you need structured data extraction from web pages.
+description: Web extraction engine with antibot bypass. Scrape, crawl, extract, summarize, search, map, diff, monitor, research, and analyze any URL — including Cloudflare-protected sites. Use when you need reliable web content, the built-in web_fetch fails, or you need structured data extraction from web pages.
 version: 1.0.0
 metadata:
   openclaw:
@@ -26,6 +26,10 @@ High-quality web extraction with automatic antibot bypass. Beats Firecrawl on ex
 - When you need to summarize a page without reading the full content
 - When you need to detect content changes between visits
 - When you need brand identity analysis (colors, fonts, logos)
+- When you need web search results with optional page scraping
+- When you need deep multi-source research on a topic
+- When you need AI-guided scraping to accomplish a goal on a page
+- When you need to monitor a URL for changes over time
 
 ## API base
 
@@ -333,6 +337,258 @@ Response:
 }
 ```
 
+### 9. Search — web search with optional scraping
+
+Search the web and optionally scrape each result page.
+
+```bash
+curl -X POST https://api.webclaw.io/v1/search \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "best rust web frameworks 2026",
+    "num_results": 5,
+    "scrape": true,
+    "formats": ["markdown"]
+  }'
+```
+
+**Request fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `query` | string | required | Search query |
+| `num_results` | int | `10` | Number of search results to return |
+| `scrape` | bool | `false` | Also scrape each result page for full content |
+| `formats` | string[] | `["markdown"]` | Output formats when `scrape` is true |
+| `country` | string | none | Country code for localized results (e.g. `"us"`, `"de"`) |
+| `lang` | string | none | Language code for results (e.g. `"en"`, `"fr"`) |
+
+**Response:**
+
+```json
+{
+  "query": "best rust web frameworks 2026",
+  "results": [
+    {
+      "title": "Top Rust Web Frameworks in 2026",
+      "url": "https://blog.example.com/rust-frameworks",
+      "snippet": "A comprehensive comparison of Axum, Actix, and Rocket...",
+      "position": 1,
+      "markdown": "# Top Rust Web Frameworks\n\n..."
+    },
+    {
+      "title": "Choosing a Rust Backend Framework",
+      "url": "https://dev.to/rust-backends",
+      "snippet": "When starting a new Rust web project...",
+      "position": 2,
+      "markdown": "# Choosing a Rust Backend\n\n..."
+    }
+  ]
+}
+```
+
+The `markdown` field on each result is only present when `scrape: true`. Without it, you get titles, URLs, snippets, and positions only.
+
+### 10. Research — deep multi-source research
+
+Starts an async research job that searches, scrapes, and synthesizes information across multiple sources. Poll for results.
+
+**Start research:**
+```bash
+curl -X POST https://api.webclaw.io/v1/research \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "How does Cloudflare Turnstile work and what are its known bypass methods?",
+    "max_iterations": 5,
+    "max_sources": 10,
+    "topic": "security",
+    "deep": true
+  }'
+```
+
+**Request fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `query` | string | required | Research question or topic |
+| `max_iterations` | int | server default | Maximum research iterations (search-read-analyze cycles) |
+| `max_sources` | int | server default | Maximum number of sources to consult |
+| `topic` | string | none | Topic hint to guide search strategy (e.g. `"security"`, `"finance"`, `"engineering"`) |
+| `deep` | bool | `false` | Enable deep research mode for more thorough analysis (costs 10 credits instead of 1) |
+
+Response: `{ "id": "res-abc-123", "status": "running" }`
+
+**Poll results:**
+```bash
+curl https://api.webclaw.io/v1/research/res-abc-123 \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY"
+```
+
+Response when complete:
+```json
+{
+  "id": "res-abc-123",
+  "status": "completed",
+  "query": "How does Cloudflare Turnstile work and what are its known bypass methods?",
+  "report": "# Cloudflare Turnstile Analysis\n\n## Overview\nCloudflare Turnstile is a CAPTCHA replacement that...\n\n## How It Works\n...\n\n## Known Bypass Methods\n...",
+  "sources": [
+    { "url": "https://developers.cloudflare.com/turnstile/", "title": "Turnstile Documentation" },
+    { "url": "https://blog.cloudflare.com/turnstile-ga/", "title": "Turnstile GA Announcement" }
+  ],
+  "findings": [
+    "Turnstile uses browser environment signals and proof-of-work challenges",
+    "Managed mode auto-selects challenge difficulty based on visitor risk score",
+    "Known bypass approaches include instrumented browser automation"
+  ],
+  "iterations": 5,
+  "elapsed_ms": 34200
+}
+```
+
+**Status values:** `running`, `completed`, `failed`
+
+### 11. Agent Scrape — AI-guided scraping
+
+Use an AI agent to navigate and interact with a page to accomplish a specific goal. The agent can click, scroll, fill forms, and extract data across multiple steps.
+
+```bash
+curl -X POST https://api.webclaw.io/v1/agent-scrape \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/products",
+    "goal": "Find the cheapest laptop with at least 16GB RAM and extract its full specs",
+    "max_steps": 10
+  }'
+```
+
+**Request fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `url` | string | required | Starting URL |
+| `goal` | string | required | What the agent should accomplish |
+| `max_steps` | int | server default | Maximum number of actions the agent can take |
+
+**Response:**
+
+```json
+{
+  "url": "https://example.com/products",
+  "result": "The cheapest laptop with 16GB+ RAM is the ThinkPad E14 Gen 6 at $649. Specs: AMD Ryzen 5 7535U, 16GB DDR4, 512GB SSD, 14\" FHD IPS display, 57Wh battery.",
+  "steps": [
+    { "action": "navigate", "detail": "Loaded products page" },
+    { "action": "click", "detail": "Clicked 'Laptops' category filter" },
+    { "action": "click", "detail": "Applied '16GB+' RAM filter" },
+    { "action": "click", "detail": "Sorted by price: low to high" },
+    { "action": "extract", "detail": "Extracted specs from first matching product" }
+  ]
+}
+```
+
+### 12. Watch — monitor a URL for changes
+
+Create persistent monitors that check a URL on a schedule and notify via webhook when content changes.
+
+**Create a monitor:**
+```bash
+curl -X POST https://api.webclaw.io/v1/watch \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/pricing",
+    "interval": "0 */6 * * *",
+    "webhook_url": "https://hooks.example.com/pricing-changed",
+    "formats": ["markdown"]
+  }'
+```
+
+**Request fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `url` | string | required | URL to monitor |
+| `interval` | string | required | Check frequency as cron expression or seconds (e.g. `"0 */6 * * *"` or `"3600"`) |
+| `webhook_url` | string | none | URL to POST when changes are detected |
+| `formats` | string[] | `["markdown"]` | Output formats for snapshots |
+
+Response:
+```json
+{
+  "id": "watch-abc-123",
+  "url": "https://example.com/pricing",
+  "interval": "0 */6 * * *",
+  "webhook_url": "https://hooks.example.com/pricing-changed",
+  "formats": ["markdown"],
+  "created_at": "2026-03-20T10:00:00Z",
+  "last_check": null,
+  "status": "active"
+}
+```
+
+**List all monitors:**
+```bash
+curl https://api.webclaw.io/v1/watch \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY"
+```
+
+Response:
+```json
+{
+  "monitors": [
+    {
+      "id": "watch-abc-123",
+      "url": "https://example.com/pricing",
+      "interval": "0 */6 * * *",
+      "status": "active",
+      "last_check": "2026-03-20T16:00:00Z",
+      "checks": 4
+    }
+  ]
+}
+```
+
+**Get a monitor with snapshots:**
+```bash
+curl https://api.webclaw.io/v1/watch/watch-abc-123 \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY"
+```
+
+Response:
+```json
+{
+  "id": "watch-abc-123",
+  "url": "https://example.com/pricing",
+  "interval": "0 */6 * * *",
+  "status": "active",
+  "snapshots": [
+    {
+      "checked_at": "2026-03-20T16:00:00Z",
+      "status": "changed",
+      "diff": "--- previous\n+++ current\n@@ -5 +5 @@\n-Pro: $99/mo\n+Pro: $119/mo"
+    },
+    {
+      "checked_at": "2026-03-20T10:00:00Z",
+      "status": "baseline"
+    }
+  ]
+}
+```
+
+**Trigger an immediate check:**
+```bash
+curl -X POST https://api.webclaw.io/v1/watch/watch-abc-123/check \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY"
+```
+
+**Delete a monitor:**
+```bash
+curl -X DELETE https://api.webclaw.io/v1/watch/watch-abc-123 \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY"
+```
+
 ## Choosing the right format
 
 | Goal | Format | Why |
@@ -351,6 +607,10 @@ Response:
 - **Use `map` before `crawl`** to discover the site structure first, then crawl specific sections.
 - **Use `extract` with a JSON schema** for reliable structured output (e.g., pricing tables, product specs, contact info).
 - **Antibot bypass is automatic** — no extra configuration needed. Works on Cloudflare, DataDome, AWS WAF, and JS-rendered SPAs.
+- **Use `search` with `scrape: true`** to get full page content for each search result in one call instead of searching then scraping separately.
+- **Use `research` for complex questions** that need multiple sources — it handles the search-read-synthesize loop automatically. Enable `deep: true` for thorough analysis.
+- **Use `agent-scrape` for interactive pages** where data is behind filters, pagination, or form submissions that a simple scrape cannot reach.
+- **Use `watch` for ongoing monitoring** — set up a cron schedule and a webhook to get notified when a page changes without polling manually.
 
 ## Smart Fetch Architecture
 
