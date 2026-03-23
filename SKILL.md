@@ -1,15 +1,9 @@
 ---
 name: webclaw
 description: Web extraction engine with antibot bypass. Scrape, crawl, extract, summarize, search, map, diff, monitor, research, and analyze any URL — including Cloudflare-protected sites. Use when you need reliable web content, the built-in web_fetch fails, or you need structured data extraction from web pages.
-version: 1.0.0
-metadata:
-  openclaw:
-    requires:
-      env:
-        - WEBCLAW_API_KEY
-    primaryEnv: WEBCLAW_API_KEY
-    emoji: "\U0001F980"
-    homepage: https://webclaw.io
+homepage: https://webclaw.io
+user-invocable: true
+metadata: {"openclaw":{"emoji":"🦀","requires":{"env":["WEBCLAW_API_KEY"]},"primaryEnv":"WEBCLAW_API_KEY","homepage":"https://webclaw.io","install":[{"id":"npx","kind":"node","bins":["webclaw-mcp"],"label":"npx create-webclaw"}]}}
 ---
 
 # webclaw
