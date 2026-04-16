@@ -443,46 +443,7 @@ Response when complete:
 
 **Status values:** `running`, `completed`, `failed`
 
-### 11. Agent Scrape — AI-guided scraping
-
-Use an AI agent to navigate and interact with a page to accomplish a specific goal. The agent can click, scroll, fill forms, and extract data across multiple steps.
-
-```bash
-curl -X POST https://api.webclaw.io/v1/agent-scrape \
-  -H "Authorization: Bearer $WEBCLAW_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://example.com/products",
-    "goal": "Find the cheapest laptop with at least 16GB RAM and extract its full specs",
-    "max_steps": 10
-  }'
-```
-
-**Request fields:**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `url` | string | required | Starting URL |
-| `goal` | string | required | What the agent should accomplish |
-| `max_steps` | int | server default | Maximum number of actions the agent can take |
-
-**Response:**
-
-```json
-{
-  "url": "https://example.com/products",
-  "result": "The cheapest laptop with 16GB+ RAM is the ThinkPad E14 Gen 6 at $649. Specs: AMD Ryzen 5 7535U, 16GB DDR4, 512GB SSD, 14\" FHD IPS display, 57Wh battery.",
-  "steps": [
-    { "action": "navigate", "detail": "Loaded products page" },
-    { "action": "click", "detail": "Clicked 'Laptops' category filter" },
-    { "action": "click", "detail": "Applied '16GB+' RAM filter" },
-    { "action": "click", "detail": "Sorted by price: low to high" },
-    { "action": "extract", "detail": "Extracted specs from first matching product" }
-  ]
-}
-```
-
-### 12. Watch — monitor a URL for changes
+### 11. Watch — monitor a URL for changes
 
 Create persistent monitors that check a URL on a schedule and notify via webhook when content changes.
 
@@ -603,21 +564,62 @@ curl -X DELETE https://api.webclaw.io/v1/watch/watch-abc-123 \
 - **Antibot bypass is automatic** — no extra configuration needed. Works on Cloudflare, DataDome, AWS WAF, and JS-rendered SPAs.
 - **Use `search` with `scrape: true`** to get full page content for each search result in one call instead of searching then scraping separately.
 - **Use `research` for complex questions** that need multiple sources — it handles the search-read-synthesize loop automatically. Enable `deep: true` for thorough analysis.
-- **Use `agent-scrape` for interactive pages** where data is behind filters, pagination, or form submissions that a simple scrape cannot reach.
 - **Use `watch` for ongoing monitoring** — set up a cron schedule and a webhook to get notified when a page changes without polling manually.
 
 ## Smart Fetch Architecture
 
-The webclaw MCP server uses a **local-first** approach:
+The webclaw MCP server uses a **local-first** approach. Extraction runs in
+your own process for the common case; the cloud API (`api.webclaw.io`) is
+only consulted when a local fetch can't finish the job.
 
-1. **Local fetch** — fast, free, no API credits used (~80% of sites)
-2. **Cloud API fallback** — automatic when bot protection or JS rendering is detected
+### Decision tree
 
-This means:
-- Most scrapes cost zero credits (local extraction)
-- Cloudflare, DataDome, AWS WAF sites automatically fall back to the cloud API
-- JS-rendered SPAs (React, Next.js, Vue) also fall back automatically
-- Set `WEBCLAW_API_KEY` to enable cloud fallback
+```
+                                ┌───────────────────┐
+  webclaw_mcp tool call ───▶    │  local HTTP fetch │
+                                └─────┬─────────────┘
+                                      │
+                            ┌─────────┴──────────┐
+                            ▼                    ▼
+                      success, clean HTML    one of:
+                      → local extract         • bot-protection page
+                      → return (0 credits)    • JS-rendered SPA shell
+                                              • network / DNS error
+                                              │
+                                              ▼
+                                    WEBCLAW_API_KEY set?
+                                    ┌─────────────┴─────────────┐
+                                   yes                          no
+                                    │                            │
+                                    ▼                            ▼
+                       cloud API (api.webclaw.io)        return best-effort
+                       credits spent per request          local result + warn
+```
+
+### What "~80% local" means in practice
+
+- **Local path (free, zero credits):** static HTML sites, public docs,
+  product pages that server-render, news sites, blogs, anything on
+  plain nginx/Apache/CDN. Extraction quality is identical to the
+  cloud path — it's the same `webclaw-core` pipeline.
+- **Cloud fallback (credits charged):** Cloudflare / DataDome / AWS WAF
+  challenges, JS-rendered SPAs (React / Next.js / Vue shells where the
+  HTML has no content until hydration), sites that require a browser
+  TLS fingerprint or solved captcha. These fail cleanly on the local
+  path and automatically retry against the cloud API.
+- **No API key set:** `WEBCLAW_API_KEY` is optional. Without it, the
+  local path still works for the 80% — only bot-protected / JS-rendered
+  sites will surface a warning and return degraded content.
+
+### Practical guidance
+
+- If you're scraping public docs, blogs, reference material, or an API's
+  HTML docs: local path is enough, don't worry about credits.
+- If the user asks for Amazon / LinkedIn / Twitter / Instagram / any
+  aggressively-protected site: expect the cloud fallback to kick in.
+- If you get an empty / short result and the page looks bot-protected,
+  try again with `force_cloud: true` (per-endpoint flag on the MCP
+  wrapper) to skip the local attempt.
 
 ## vs web_fetch
 
