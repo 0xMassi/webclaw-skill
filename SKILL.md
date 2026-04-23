@@ -331,7 +331,46 @@ Response:
 }
 ```
 
-### 9. Search — web search with optional scraping
+### 9. Vertical extractors — typed JSON for 28 sites
+
+Site-specific extractors that return typed JSON instead of generic markdown. Use when the target URL is a GitHub PR, Reddit thread, Amazon product, YouTube video, PyPI/npm/crates package, HuggingFace model/dataset, ArXiv paper, Instagram profile, Shopify product, Etsy listing, Trustpilot reviews, or similar.
+
+```bash
+# List every extractor with its label and URL shape
+curl https://api.webclaw.io/v1/extractors \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY"
+
+# Run a specific extractor (GitHub PR)
+curl -X POST https://api.webclaw.io/v1/scrape/github_pr \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://github.com/rust-lang/rust/pull/123456"}'
+```
+
+Response shape (extractor-specific `data`):
+```json
+{
+  "vertical": "github_pr",
+  "url": "https://github.com/rust-lang/rust/pull/123456",
+  "data": {
+    "title": "...",
+    "state": "open",
+    "author": "...",
+    "additions": 42,
+    "deletions": 7,
+    "commits": 3,
+    "reviews": [ /* ... */ ]
+  }
+}
+```
+
+**Full catalog (28):** `reddit`, `hackernews`, `github_repo`, `github_pr`, `github_issue`, `github_release`, `pypi`, `npm`, `crates_io`, `huggingface_model`, `huggingface_dataset`, `arxiv`, `docker_hub`, `dev_to`, `stackoverflow`, `substack_post`, `youtube_video`, `linkedin_post`, `instagram_post`, `instagram_profile`, `shopify_product`, `shopify_collection`, `ecommerce_product`, `woocommerce_product`, `amazon_product`, `ebay_listing`, `etsy_listing`, `trustpilot_reviews`.
+
+23 of these auto-dispatch from a plain `POST /v1/scrape` call (their URL patterns are distinctive). The 5 generic-pattern ones (`shopify_*`, `ecommerce_product`, `woocommerce_product`, `substack_post`) require the explicit `/v1/scrape/{vertical}` route.
+
+Bills 1 credit per successful call.
+
+### 10. Search — web search with optional scraping
 
 Search the web and optionally scrape each result page.
 
@@ -384,7 +423,7 @@ curl -X POST https://api.webclaw.io/v1/search \
 
 The `markdown` field on each result is only present when `scrape: true`. Without it, you get titles, URLs, snippets, and positions only.
 
-### 10. Research — deep multi-source research
+### 11. Research — deep multi-source research
 
 Starts an async research job that searches, scrapes, and synthesizes information across multiple sources. Poll for results.
 
@@ -443,7 +482,7 @@ Response when complete:
 
 **Status values:** `running`, `completed`, `failed`
 
-### 11. Watch — monitor a URL for changes
+### 12. Watch — monitor a URL for changes
 
 Create persistent monitors that check a URL on a schedule and notify via webhook when content changes.
 
