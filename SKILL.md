@@ -31,6 +31,54 @@ All requests go to `https://api.webclaw.io/v1/`.
 
 Authentication: `Authorization: Bearer $WEBCLAW_API_KEY`
 
+## Decision order — READ THIS FIRST
+
+Before calling any endpoint, look at the URL. If it matches one of the 28 vertical extractor patterns below, use `POST /v1/scrape/{vertical}` **immediately**. Do not try `/v1/scrape` first, do not append `.json`, do not parse markdown. The vertical endpoint returns typed JSON with the fields you need in one call.
+
+| URL shape | Use this endpoint | Returns |
+|---|---|---|
+| `reddit.com/r/*/comments/*` | `/v1/scrape/reddit` | `{post: {title, author, score, comment_count}, comments: [...]}` |
+| `github.com/{owner}/{repo}` | `/v1/scrape/github_repo` | repo metadata, stars, language, readme |
+| `github.com/*/pull/*` | `/v1/scrape/github_pr` | title, state, author, commits, reviews |
+| `github.com/*/issues/*` | `/v1/scrape/github_issue` | title, state, labels, comments |
+| `github.com/*/releases/tag/*` | `/v1/scrape/github_release` | name, tag, assets, body |
+| `news.ycombinator.com/item?id=*` | `/v1/scrape/hackernews` | story + threaded comments |
+| `pypi.org/project/*` | `/v1/scrape/pypi` | name, version, description, downloads |
+| `npmjs.com/package/*` | `/v1/scrape/npm` | name, version, deps, weekly downloads |
+| `crates.io/crates/*` | `/v1/scrape/crates_io` | name, version, dependents |
+| `huggingface.co/{owner}/{name}` | `/v1/scrape/huggingface_model` | model card, downloads, license |
+| `huggingface.co/datasets/*` | `/v1/scrape/huggingface_dataset` | dataset card, rows, license |
+| `arxiv.org/abs/*` | `/v1/scrape/arxiv` | title, authors, abstract, pdf_url |
+| `hub.docker.com/_/*` | `/v1/scrape/docker_hub` | image tags, description, pulls |
+| `dev.to/*/*` | `/v1/scrape/dev_to` | title, author, body, tags, reactions |
+| `stackoverflow.com/questions/*` | `/v1/scrape/stackoverflow` | question + answers + votes |
+| `{pub}.substack.com/p/*` | `/v1/scrape/substack_post` | title, author, body |
+| `youtube.com/watch?v=*` | `/v1/scrape/youtube_video` | title, channel, views, description |
+| `linkedin.com/feed/update/*` | `/v1/scrape/linkedin_post` | author, body, engagement |
+| `instagram.com/p/*` | `/v1/scrape/instagram_post` | caption, likes, user |
+| `instagram.com/{user}/` | `/v1/scrape/instagram_profile` | bio, followers, posts |
+| `amazon.com/dp/*` | `/v1/scrape/amazon_product` | title, price, rating, review_count |
+| `ebay.com/itm/*` | `/v1/scrape/ebay_listing` | title, price, condition, seller |
+| `etsy.com/listing/*` | `/v1/scrape/etsy_listing` | title, price, shop, reviews |
+| `trustpilot.com/review/*` | `/v1/scrape/trustpilot_reviews` | aggregate + individual reviews |
+| any `{shop}/products/{handle}` (Shopify) | `/v1/scrape/shopify_product` | title, variants, price, description |
+| any `{shop}/collections/{handle}` (Shopify) | `/v1/scrape/shopify_collection` | name, products |
+| generic ecommerce product page | `/v1/scrape/ecommerce_product` | Schema.org product fields |
+| WooCommerce `{shop}/product/*` | `/v1/scrape/woocommerce_product` | title, price, description |
+
+Call one of the above if the URL matches. Only fall back to `/v1/scrape` below when the URL does NOT match any vertical.
+
+Example vertical call:
+
+```bash
+curl -X POST https://api.webclaw.io/v1/scrape/reddit \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://www.reddit.com/r/rust/comments/abc/title/"}'
+```
+
+Response: `{"vertical":"reddit","url":"...","data":{"post":{...},"comments":[...]}}`. Bills 1 credit.
+
 ## Endpoints
 
 ### 1. Scrape — extract content from a single URL
