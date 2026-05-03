@@ -53,7 +53,7 @@ Before calling any endpoint, look at the URL. If it matches one of the 28 vertic
 | `dev.to/*/*` | `/v1/scrape/dev_to` | title, author, body, tags, reactions |
 | `stackoverflow.com/questions/*` | `/v1/scrape/stackoverflow` | question + answers + votes |
 | `{pub}.substack.com/p/*` | `/v1/scrape/substack_post` | title, author, body |
-| `youtube.com/watch?v=*` | `/v1/scrape/youtube_video` | title, channel, views, description |
+| `youtube.com/watch?v=*` (or `/shorts/*`, `youtu.be/*`) | `/v1/scrape` (auto-detected) | full transcript + title, channel, channel_url, duration_seconds, view_count, like_count, tags, thumbnail. See "YouTube auto-detection" below. |
 | `linkedin.com/feed/update/*` | `/v1/scrape/linkedin_post` | author, body, engagement |
 | `instagram.com/p/*` | `/v1/scrape/instagram_post` | caption, likes, user |
 | `instagram.com/{user}/` | `/v1/scrape/instagram_profile` | bio, followers, posts |
@@ -137,6 +137,38 @@ curl -X POST https://api.webclaw.io/v1/scrape \
   }
 }
 ```
+
+**YouTube auto-detection** (automatic, no extra config):
+
+Pass any `youtube.com/watch`, `youtube.com/shorts/`, or `youtu.be/` URL and the response carries two extra fields alongside `markdown` / `text` / `llm`:
+
+- `transcript` (string) — full auto-caption text. `null` when the video has no captions.
+- `youtube` (object) — `{ video_id, title, description, channel, channel_url, uploader, upload_date, duration_seconds, view_count, like_count, thumbnail, tags, categories, language }`.
+
+```bash
+curl -X POST https://api.webclaw.io/v1/scrape \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
+```
+
+```json
+{
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "metadata": { "title": "...", "image": "https://i.ytimg.com/..." },
+  "youtube": {
+    "video_id": "dQw4w9WgXcQ",
+    "channel": "Rick Astley",
+    "duration_seconds": 213,
+    "view_count": 1490000000,
+    "tags": ["rick astley", "..."]
+  },
+  "transcript": "We're no strangers to love...",
+  "markdown": "# Never Gonna Give You Up\n\n**Channel:** Rick Astley\n\n## Description\n..."
+}
+```
+
+Cold p50 latency 2-4s; cache hits ~150ms. 1 credit per call. Same fields available on the SDKs as `result.youtube.*` / `result.transcript` (Python, JS) and `resp.YouTube.*` / `resp.Transcript` (Go).
 
 ### 2. Crawl — scrape an entire website
 
@@ -296,8 +328,8 @@ Response:
   "url": "https://example.com/pricing",
   "data": {
     "plans": [
-      { "name": "Starter", "price": "$49/mo", "features": ["10k pages", "Email support"] },
-      { "name": "Pro", "price": "$99/mo", "features": ["100k pages", "Priority support", "API access"] }
+      { "name": "Starter", "price": "$19/mo", "features": ["10k credits", "3 research runs"] },
+      { "name": "Pro", "price": "$99/mo", "features": ["250k credits", "20 research runs"] }
     ]
   }
 }
@@ -495,7 +527,7 @@ curl -X POST https://api.webclaw.io/v1/research \
 |-------|------|---------|-------------|
 | `query` | string | required | Research question or topic |
 | `max_iterations` | int | server default | Maximum research iterations (search-read-analyze cycles) |
-| `max_sources` | int | server default | Maximum number of sources to consult |
+| `max_sources` | int | server default | Maximum number of sources to consult. Tier capped: Free 0, Starter 10, Pro 30, Scale 100 |
 | `topic` | string | none | Topic hint to guide search strategy (e.g. `"security"`, `"finance"`, `"engineering"`) |
 | `deep` | bool | `false` | Enable deep research mode for more thorough analysis (costs 10 credits instead of 1) |
 
