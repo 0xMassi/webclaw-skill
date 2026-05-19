@@ -446,7 +446,9 @@ Response shape (extractor-specific `data`):
 
 **Full catalog (28):** `reddit`, `hackernews`, `github_repo`, `github_pr`, `github_issue`, `github_release`, `pypi`, `npm`, `crates_io`, `huggingface_model`, `huggingface_dataset`, `arxiv`, `docker_hub`, `dev_to`, `stackoverflow`, `substack_post`, `youtube_video`, `linkedin_post`, `instagram_post`, `instagram_profile`, `shopify_product`, `shopify_collection`, `ecommerce_product`, `woocommerce_product`, `amazon_product`, `ebay_listing`, `etsy_listing`, `trustpilot_reviews`.
 
-23 of these auto-dispatch from a plain `POST /v1/scrape` call (their URL patterns are distinctive). The 5 generic-pattern ones (`shopify_*`, `ecommerce_product`, `woocommerce_product`, `substack_post`) require the explicit `/v1/scrape/{vertical}` route.
+Most of these auto-dispatch from a plain `POST /v1/scrape` call (their URL patterns are distinctive). The generic-pattern ones (`shopify_*`, `ecommerce_product`, `woocommerce_product`, `substack_post`) require the explicit `/v1/scrape/{vertical}` route.
+
+`youtube_video` is **not** a `/v1/scrape/{vertical}` route. YouTube `watch` / `shorts` / `youtu.be` URLs are handled by a short-circuit inside `POST /v1/scrape` that returns the `transcript` + `youtube` block described under "YouTube auto-detection" above. Do not POST to `/v1/scrape/youtube_video`.
 
 Bills 1 credit per successful call.
 
@@ -663,6 +665,35 @@ curl -X DELETE https://api.webclaw.io/v1/watch/watch-abc-123 \
   -H "Authorization: Bearer $WEBCLAW_API_KEY"
 ```
 
+## Firecrawl v2 compatibility layer
+
+If you already have code written against the Firecrawl v2 API, point it at
+`https://api.webclaw.io` and use these drop-in endpoints instead of the
+native `/v1/*` ones. They accept Firecrawl-shaped requests and return
+Firecrawl-shaped responses, backed by the same webclaw extraction pipeline.
+
+| Method | Path | Maps to |
+|--------|------|---------|
+| POST | `/v2/scrape` | single-page scrape |
+| POST | `/v2/crawl` | start async crawl |
+| GET | `/v2/crawl/{id}` | crawl status/results |
+| DELETE | `/v2/crawl/{id}` | cancel a crawl |
+| POST | `/v2/map` | URL discovery |
+| POST | `/v2/search` | web search |
+
+```bash
+curl -X POST https://api.webclaw.io/v2/scrape \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com", "formats": ["markdown"]}'
+```
+
+Same auth (`Authorization: Bearer $WEBCLAW_API_KEY`) and the same credit
+billing as the native endpoints. Prefer the native `/v1/*` API for new
+code — the `/v2` layer exists only for Firecrawl migration compatibility
+and does not expose webclaw-only features (vertical extractors, YouTube
+short-circuit, `llm` format, brand, diff, research, watch).
+
 ## Choosing the right format
 
 | Goal | Format | Why |
@@ -685,17 +716,26 @@ curl -X DELETE https://api.webclaw.io/v1/watch/watch-abc-123 \
 - **Use `research` for complex questions** that need multiple sources — it handles the search-read-synthesize loop automatically. Enable `deep: true` for thorough analysis.
 - **Use `watch` for ongoing monitoring** — set up a cron schedule and a webhook to get notified when a page changes without polling manually.
 
-## Smart Fetch Architecture
+## Smart Fetch Architecture (local CLI wrapper only)
 
-The webclaw MCP server uses a **local-first** approach. Extraction runs in
-your own process for the common case; the cloud API (`api.webclaw.io`) is
-only consulted when a local fetch can't finish the job.
+> **Scope:** This section describes the bundled CLI wrapper
+> `scripts/webclaw.py` only. It does **not** describe the HTTP API.
+> Every call to `https://api.webclaw.io/*` (including `/v2`) bills
+> credits — the API has no local-first path and no "free" tier of
+> requests. The local-first / zero-credit behaviour below exists only
+> because the wrapper runs a plain HTTP fetch on your own machine
+> first and only calls the API when that fetch can't finish the job.
 
-### Decision tree
+The `scripts/webclaw.py` wrapper uses a **local-first** approach:
+extraction runs in your own process for the common case, and the cloud
+API (`api.webclaw.io`) is only consulted — and only then billed — when
+a local fetch can't finish the job.
+
+### Decision tree (wrapper)
 
 ```
                                 ┌───────────────────┐
-  webclaw_mcp tool call ───▶    │  local HTTP fetch │
+  scripts/webclaw.py scrape ─▶  │  local HTTP fetch │
                                 └─────┬─────────────┘
                                       │
                             ┌─────────┴──────────┐
@@ -715,37 +755,41 @@ only consulted when a local fetch can't finish the job.
                        credits spent per request          local result + warn
 ```
 
-### What "~80% local" means in practice
+### What "~80% local" means in practice (wrapper)
 
-- **Local path (free, zero credits):** static HTML sites, public docs,
-  product pages that server-render, news sites, blogs, anything on
-  plain nginx/Apache/CDN. Extraction quality is identical to the
-  cloud path — it's the same `webclaw-core` pipeline.
+- **Local path (free, zero credits — wrapper only):** static HTML sites,
+  public docs, product pages that server-render, news sites, blogs,
+  anything on plain nginx/Apache/CDN. The wrapper does a basic stdlib
+  text extraction here; quality is lower than the cloud `webclaw-core`
+  pipeline but costs nothing.
 - **Cloud fallback (credits charged):** Cloudflare / DataDome / AWS WAF
   challenges, JS-rendered SPAs (React / Next.js / Vue shells where the
   HTML has no content until hydration), sites that require a browser
-  TLS fingerprint or solved captcha. These fail cleanly on the local
-  path and automatically retry against the cloud API.
-- **No API key set:** `WEBCLAW_API_KEY` is optional. Without it, the
-  local path still works for the 80% — only bot-protected / JS-rendered
-  sites will surface a warning and return degraded content.
+  TLS fingerprint or solved captcha. The wrapper fails cleanly on the
+  local path and automatically retries against the cloud API.
+- **No API key set:** `WEBCLAW_API_KEY` is optional *for the wrapper*.
+  Without it, the local path still works for the 80% — only
+  bot-protected / JS-rendered sites surface a warning and return
+  degraded content. (The HTTP API always requires a key.)
 
-### Practical guidance
+### Practical guidance (wrapper)
 
 - If you're scraping public docs, blogs, reference material, or an API's
-  HTML docs: local path is enough, don't worry about credits.
+  HTML docs through the wrapper: local path is enough, don't worry about
+  credits.
 - If the user asks for Amazon / LinkedIn / Twitter / Instagram / any
-  aggressively-protected site: expect the cloud fallback to kick in.
+  aggressively-protected site: expect the wrapper's cloud fallback to
+  kick in (credits billed).
 - If you get an empty / short result and the page looks bot-protected,
-  try again with `force_cloud: true` (per-endpoint flag on the MCP
-  wrapper) to skip the local attempt.
+  re-run the wrapper with `--cloud` to skip the local attempt and go
+  straight to the API.
 
 ## vs web_fetch
 
 | | webclaw | web_fetch |
 |---|---------|-----------|
-| Cloudflare bypass | Automatic (cloud fallback) | Fails (403) |
-| JS-rendered pages | Automatic fallback | Readability only |
+| Cloudflare bypass | Automatic | Fails (403) |
+| JS-rendered pages | Automatic | Readability only |
 | Output quality | 20-step optimization pipeline | Basic HTML parsing |
 | Structured extraction | LLM-powered, schema-based | None |
 | Crawling | Full site crawl with sitemap | Single page only |
