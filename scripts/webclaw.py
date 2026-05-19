@@ -4,17 +4,18 @@
 Smart fetch: tries local HTTP first, falls back to webclaw cloud API
 when bot protection or JS rendering is detected. Zero dependencies.
 
-This wrapper exposes 9 of the webclaw API endpoints as CLI commands
-(scrape, crawl, crawl-status, map, batch, extract, summarize, diff,
-brand). The full HTTP API has more endpoints (search, research,
-watch, vertical extractors, /v2 Firecrawl-compat) — see SKILL.md for
-the complete reference; call those directly over HTTP.
+This wrapper exposes 10 of the webclaw API endpoints as CLI commands
+(scrape, crawl, crawl-status, map, endpoints, batch, extract,
+summarize, diff, brand). The full HTTP API has more endpoints (search,
+research, watch, vertical extractors, /v2 Firecrawl-compat) — see
+SKILL.md for the complete reference; call those directly over HTTP.
 
 Usage:
   python3 scripts/webclaw.py scrape <url> [--format markdown|text|llm|json] [--main] [--no-cache] [--cloud]
   python3 scripts/webclaw.py crawl <url> [--depth N] [--pages N] [--sitemap]
   python3 scripts/webclaw.py crawl-status <job_id>
   python3 scripts/webclaw.py map <url>
+  python3 scripts/webclaw.py endpoints <url> [--third-party] [--max-bundles N]
   python3 scripts/webclaw.py batch <url1> <url2> ... [--format markdown|text|llm]
   python3 scripts/webclaw.py extract <url> --prompt "..." | --schema '{"type":"object",...}'
   python3 scripts/webclaw.py summarize <url> [--sentences N]
@@ -495,6 +496,44 @@ def cmd_map(args):
         print(f"  {u}")
 
 
+def cmd_endpoints(args):
+    url = args[0]
+    third_party = False
+    max_bundles = None
+
+    i = 1
+    while i < len(args):
+        if args[i] == "--third-party":
+            third_party = True
+            i += 1
+        elif args[i] == "--max-bundles" and i + 1 < len(args):
+            max_bundles = int(args[i + 1])
+            i += 2
+        else:
+            i += 1
+
+    body = {"url": url}
+    if third_party:
+        body["include_third_party"] = True
+    if max_bundles is not None:
+        body["max_bundles"] = max_bundles
+
+    result = api("endpoints", body)
+    eps = result.get("endpoints", [])
+    print(
+        f"Found {result.get('endpoint_count', len(eps))} endpoints "
+        f"({result.get('bundles_scanned', 0)} bundles scanned):"
+    )
+    for ep in eps:
+        scope = "1st" if ep.get("first_party") else "3rd"
+        print(f"  [{ep.get('kind', '?')}] [{scope}] {ep.get('value', '')}  <- {ep.get('source', '?')}")
+    hosts = result.get("hosts", [])
+    if hosts:
+        print(f"Hosts: {', '.join(hosts)}")
+    if result.get("truncated"):
+        print("(truncated: more bundles existed than --max-bundles allowed)")
+
+
 def cmd_batch(args):
     urls = []
     fmt = "markdown"
@@ -612,6 +651,7 @@ def main():
         "crawl": cmd_crawl,
         "crawl-status": cmd_crawl_status,
         "map": cmd_map,
+        "endpoints": cmd_endpoints,
         "batch": cmd_batch,
         "extract": cmd_extract,
         "summarize": cmd_summarize,
