@@ -4,6 +4,12 @@
 Smart fetch: tries local HTTP first, falls back to webclaw cloud API
 when bot protection or JS rendering is detected. Zero dependencies.
 
+This wrapper exposes 9 of the webclaw API endpoints as CLI commands
+(scrape, crawl, crawl-status, map, batch, extract, summarize, diff,
+brand). The full HTTP API has more endpoints (search, research,
+watch, vertical extractors, /v2 Firecrawl-compat) — see SKILL.md for
+the complete reference; call those directly over HTTP.
+
 Usage:
   python3 scripts/webclaw.py scrape <url> [--format markdown|text|llm|json] [--main] [--no-cache] [--cloud]
   python3 scripts/webclaw.py crawl <url> [--depth N] [--pages N] [--sitemap]
@@ -14,17 +20,34 @@ Usage:
   python3 scripts/webclaw.py summarize <url> [--sentences N]
   python3 scripts/webclaw.py diff <url> --previous <file.json>
   python3 scripts/webclaw.py brand <url>
+
+Environment:
+  WEBCLAW_API_KEY       API key for the cloud API (required for cloud calls).
+  WEBCLAW_API_KEY_FILE  Optional path to a file containing the API key.
+                        If unset, falls back to <skill>/secrets/webclaw_api_key
+                        resolved relative to this script, never the CWD.
 """
 
 import html.parser
+import ipaddress
 import json
 import os
-import re
+import socket
 import sys
-import urllib.request
 import urllib.error
+import urllib.parse
+import urllib.request
 
 API_BASE = "https://api.webclaw.io/v1"
+
+# Max redirects local_fetch will follow before giving up. Each hop is
+# re-validated by the SSRF guard, so this only bounds redirect loops.
+_MAX_REDIRECTS = 5
+
+# Standard error shape printed to stderr before a non-zero exit.
+def _fail(message):
+    print(f"Error: {message}", file=sys.stderr)
+    sys.exit(1)
 
 # --- Antibot detection patterns (ported from webclaw-server/src/antibot.rs) ---
 
@@ -123,23 +146,71 @@ def extract_text(html_text):
 
 # --- API client ---
 
+# Skill root = parent of this script's directory (scripts/). The fallback
+# key file is resolved against this fixed base so the lookup does not
+# depend on the process working directory.
+_SKILL_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def get_api_key():
     key = os.environ.get("WEBCLAW_API_KEY", "")
-    if not key:
-        for path in ["workspace/secrets/webclaw_api_key", "secrets/webclaw_api_key"]:
-            if os.path.isfile(path):
-                with open(path) as f:
-                    key = f.read().strip()
-                if key:
-                    break
+    if key:
+        return key
+
+    key_file = os.environ.get("WEBCLAW_API_KEY_FILE", "")
+    candidates = []
+    if key_file:
+        candidates.append(key_file)
+    candidates.append(os.path.join(_SKILL_ROOT, "secrets", "webclaw_api_key"))
+
+    for path in candidates:
+        if os.path.isfile(path):
+            with open(path) as f:
+                key = f.read().strip()
+            if key:
+                break
     return key
 
 
-def api(endpoint, body):
+def _require_key():
     key = get_api_key()
     if not key:
-        print("Error: WEBCLAW_API_KEY not set. Get one at https://webclaw.io", file=sys.stderr)
-        sys.exit(1)
+        _fail("WEBCLAW_API_KEY not set. Get one at https://webclaw.io")
+    return key
+
+
+def _do_request(req):
+    """Run an HTTP request and decode JSON, exiting cleanly on any failure.
+
+    Covers HTTPError (4xx/5xx with a body), URLError (DNS / connection
+    refused), socket.timeout (slow upstream), and a non-JSON body. The
+    raw API error string is surfaced when the server returns one.
+    """
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            raw = resp.read()
+    except urllib.error.HTTPError as e:
+        body_text = e.read().decode("utf-8", errors="replace")
+        try:
+            err = json.loads(body_text)
+            _fail(f"{e.code}: {err.get('error', body_text)}")
+        except json.JSONDecodeError:
+            _fail(f"{e.code}: {body_text}")
+    except urllib.error.URLError as e:
+        _fail(f"request failed: {e.reason}")
+    except (socket.timeout, TimeoutError):
+        _fail("request timed out after 120s")
+    except OSError as e:
+        _fail(f"request failed: {e}")
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        _fail("API returned a non-JSON response")
+
+
+def api(endpoint, body):
+    key = _require_key()
     data = json.dumps(body).encode()
     req = urllib.request.Request(
         f"{API_BASE}/{endpoint}",
@@ -149,47 +220,122 @@ def api(endpoint, body):
             "Content-Type": "application/json",
         },
     )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        body_text = e.read().decode()
-        try:
-            err = json.loads(body_text)
-            print(f"Error {e.code}: {err.get('error', body_text)}", file=sys.stderr)
-        except json.JSONDecodeError:
-            print(f"Error {e.code}: {body_text}", file=sys.stderr)
-        sys.exit(1)
+    return _do_request(req)
 
 
 def api_get(endpoint):
-    key = get_api_key()
-    if not key:
-        print("Error: WEBCLAW_API_KEY not set. Get one at https://webclaw.io", file=sys.stderr)
-        sys.exit(1)
+    key = _require_key()
     req = urllib.request.Request(
         f"{API_BASE}/{endpoint}",
         headers={"Authorization": f"Bearer {key}"},
     )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        body_text = e.read().decode()
-        print(f"Error {e.code}: {body_text}", file=sys.stderr)
-        sys.exit(1)
+    return _do_request(req)
 
 
 # --- Smart fetch: local first, cloud fallback ---
 
+class SSRFError(Exception):
+    """Raised when a URL or redirect target points at a non-public host."""
+
+
+def _ip_is_blocked(ip_str):
+    """True if the address is loopback / private / link-local / ULA / CGNAT
+    or otherwise not a normal public unicast address."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return True  # unparseable → refuse
+
+    if (
+        ip.is_private          # RFC1918 / fc00::/7 ULA / etc.
+        or ip.is_loopback      # 127.0.0.0/8, ::1
+        or ip.is_link_local    # 169.254.0.0/16, fe80::/10
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified   # 0.0.0.0, ::
+    ):
+        return True
+
+    # 100.64.0.0/10 CGNAT (also used by Tailscale) is not flagged by
+    # ipaddress.is_private, so check it explicitly.
+    if ip.version == 4 and ip in ipaddress.ip_network("100.64.0.0/10"):
+        return True
+
+    # IPv4-mapped IPv6 (::ffff:a.b.c.d) — re-check the embedded v4.
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        return _ip_is_blocked(str(ip.ipv4_mapped))
+
+    return False
+
+
+def _validate_url(url):
+    """Validate a URL for local fetching. Enforces http/https and refuses
+    hosts that resolve to any private/loopback/link-local/ULA/CGNAT IP.
+    Returns the parsed result or raises SSRFError."""
+    parsed = urllib.parse.urlsplit(url)
+
+    if parsed.scheme not in ("http", "https"):
+        raise SSRFError(f"refusing non-http(s) scheme: {parsed.scheme or '(none)'}")
+
+    host = parsed.hostname
+    if not host:
+        raise SSRFError("URL has no host")
+
+    # Resolve every address the host maps to and block if ANY is non-public.
+    # (Defends against DNS records that return one public + one private IP.)
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+    except socket.gaierror as e:
+        raise SSRFError(f"DNS resolution failed for {host}: {e}")
+
+    addrs = {info[4][0] for info in infos}
+    if not addrs:
+        raise SSRFError(f"no addresses resolved for {host}")
+
+    for addr in addrs:
+        if _ip_is_blocked(addr):
+            raise SSRFError(f"host {host} resolves to a non-public address ({addr})")
+
+    return parsed
+
+
+class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-validate every redirect target through the SSRF guard, and bound
+    the redirect chain. Prevents an open redirect from a public page to an
+    internal address."""
+
+    # urllib's defaults are max_repeats=4 / max_redirections=10; tighten
+    # the total-hop cap to _MAX_REDIRECTS.
+    max_redirections = _MAX_REDIRECTS
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        try:
+            _validate_url(newurl)
+        except SSRFError as e:
+            raise urllib.error.URLError(f"blocked redirect: {e}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_GUARDED_OPENER = urllib.request.build_opener(_GuardedRedirectHandler())
+
+
 def local_fetch(url):
-    """Try fetching a URL locally. Returns (html, final_url) or raises."""
+    """Try fetching a URL locally. Returns (html, final_url) or raises.
+
+    SSRF-hardened: only http/https, the host (and every redirect hop) must
+    resolve exclusively to public IPs, and the redirect chain is bounded.
+    """
+    _validate_url(url)
+
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     })
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with _GUARDED_OPENER.open(req, timeout=15) as resp:
+        # Bound the redirect chain: urllib's default cap is 10; tighten it.
+        if len(resp.url) and getattr(resp, "redirect_count", 0) > _MAX_REDIRECTS:
+            raise SSRFError(f"too many redirects (> {_MAX_REDIRECTS})")
         html_bytes = resp.read()
         # Try to detect encoding
         content_type = resp.headers.get("Content-Type", "")
