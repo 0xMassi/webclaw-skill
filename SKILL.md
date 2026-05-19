@@ -16,6 +16,7 @@ High-quality web extraction with automatic antibot bypass. Beats Firecrawl on ex
 - When `web_fetch` returns empty/blocked content (403, Cloudflare challenges)
 - When you need structured data extraction (pricing tables, product info)
 - When you need to crawl an entire site or discover all URLs
+- When you need to discover the API endpoints a page's JavaScript calls
 - When you need LLM-optimized content (cleaner than raw markdown)
 - When you need to summarize a page without reading the full content
 - When you need to detect content changes between visits
@@ -250,7 +251,62 @@ Response:
 }
 ```
 
-### 4. Batch — scrape multiple URLs in parallel
+### 4. Endpoints — discover API endpoints embedded in a page
+
+Scans a page's inline JavaScript and `<script src>` bundles for API
+endpoints (relative paths, absolute URLs, GraphQL, WebSocket). This
+surfaces the request surface that `map` (sitemap only) cannot see —
+useful for reverse-engineering a site's backend before scraping or
+extracting. Heuristic v1: regex over fetched JS, single URL.
+
+```bash
+curl -X POST https://api.webclaw.io/v1/endpoints \
+  -H "Authorization: Bearer $WEBCLAW_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com",
+    "include_third_party": false,
+    "max_bundles": 20
+  }'
+```
+
+**Request fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `url` | string | required | Page URL to scan |
+| `include_third_party` | bool | `false` | Also report endpoints on hosts other than the target site |
+| `max_bundles` | int | `20` | Max number of `<script src>` bundles to fetch and scan (capped at 20) |
+
+**Response:**
+
+```json
+{
+  "url": "https://example.com",
+  "bundles_scanned": 8,
+  "endpoint_count": 23,
+  "endpoints": [
+    { "value": "/api/v1/users", "kind": "relative_path", "first_party": true, "source": "inline" },
+    { "value": "https://api.example.com/graphql", "kind": "absolute_url", "first_party": true, "source": "https://example.com/static/app.4f2c.js" },
+    { "value": "query { viewer { id } }", "kind": "graph_ql", "first_party": true, "source": "https://example.com/static/app.4f2c.js" },
+    { "value": "wss://realtime.example.com/socket", "kind": "web_socket", "first_party": true, "source": "inline" }
+  ],
+  "hosts": ["api.example.com", "realtime.example.com"],
+  "truncated": false
+}
+```
+
+**Endpoint `kind` values:** `relative_path`, `absolute_url`, `graph_ql`, `web_socket`.
+
+`source` is either `"inline"` (found in the page's inline `<script>`) or
+the URL of the bundle the endpoint was extracted from. `first_party` is
+`true` when the endpoint host matches the target site;
+`include_third_party: false` filters the rest out. `truncated` is `true`
+when more bundles existed than `max_bundles` allowed.
+
+Bills 2 credits per call.
+
+### 5. Batch — scrape multiple URLs in parallel
 
 ```bash
 curl -X POST https://api.webclaw.io/v1/batch \
@@ -281,7 +337,7 @@ Response:
 }
 ```
 
-### 5. Extract — LLM-powered structured extraction
+### 6. Extract — LLM-powered structured extraction
 
 Pull structured data from any page using a JSON schema or plain-text prompt.
 
@@ -335,7 +391,7 @@ Response:
 }
 ```
 
-### 6. Summarize — get a quick summary of any page
+### 7. Summarize — get a quick summary of any page
 
 ```bash
 curl -X POST https://api.webclaw.io/v1/summarize \
@@ -355,7 +411,7 @@ Response:
 }
 ```
 
-### 7. Diff — detect content changes
+### 8. Diff — detect content changes
 
 Compare current page content against a previous snapshot.
 
@@ -384,7 +440,7 @@ Response:
 }
 ```
 
-### 8. Brand — extract brand identity
+### 9. Brand — extract brand identity
 
 Analyze a website's visual identity: colors, fonts, logo.
 
@@ -411,7 +467,7 @@ Response:
 }
 ```
 
-### 9. Vertical extractors — typed JSON for 28 sites
+### 10. Vertical extractors — typed JSON for 28 sites
 
 Site-specific extractors that return typed JSON instead of generic markdown. Use when the target URL is a GitHub PR, Reddit thread, Amazon product, YouTube video, PyPI/npm/crates package, HuggingFace model/dataset, ArXiv paper, Instagram profile, Shopify product, Etsy listing, Trustpilot reviews, or similar.
 
@@ -452,7 +508,7 @@ Most of these auto-dispatch from a plain `POST /v1/scrape` call (their URL patte
 
 Bills 1 credit per successful call.
 
-### 10. Search — web search with optional scraping
+### 11. Search — web search with optional scraping
 
 Search the web and optionally scrape each result page.
 
@@ -505,7 +561,7 @@ curl -X POST https://api.webclaw.io/v1/search \
 
 The `markdown` field on each result is only present when `scrape: true`. Without it, you get titles, URLs, snippets, and positions only.
 
-### 11. Research — deep multi-source research
+### 12. Research — deep multi-source research
 
 Starts an async research job that searches, scrapes, and synthesizes information across multiple sources. Poll for results.
 
@@ -564,7 +620,7 @@ Response when complete:
 
 **Status values:** `running`, `completed`, `failed`
 
-### 12. Watch — monitor a URL for changes
+### 13. Watch — monitor a URL for changes
 
 Create persistent monitors that check a URL on a schedule and notify via webhook when content changes.
 
@@ -692,7 +748,8 @@ Same auth (`Authorization: Bearer $WEBCLAW_API_KEY`) and the same credit
 billing as the native endpoints. Prefer the native `/v1/*` API for new
 code — the `/v2` layer exists only for Firecrawl migration compatibility
 and does not expose webclaw-only features (vertical extractors, YouTube
-short-circuit, `llm` format, brand, diff, research, watch).
+short-circuit, `llm` format, endpoints discovery, brand, diff, research,
+watch).
 
 ## Choosing the right format
 
@@ -710,6 +767,7 @@ short-circuit, `llm` format, brand, diff, research, watch).
 - **Use `include_selectors`/`exclude_selectors`** for fine-grained control when `only_main_content` isn't enough.
 - **Batch over individual scrapes** when fetching multiple URLs — it's faster and more efficient.
 - **Use `map` before `crawl`** to discover the site structure first, then crawl specific sections.
+- **Use `endpoints` to reverse-engineer a site's backend** — it pulls API paths, GraphQL, and WebSocket URLs out of the page's JS that `map` (sitemap only) can't see. Set `include_third_party: true` to also see analytics/3rd-party calls.
 - **Use `extract` with a JSON schema** for reliable structured output (e.g., pricing tables, product specs, contact info).
 - **Antibot bypass is automatic** — no extra configuration needed. Works on Cloudflare, DataDome, AWS WAF, and JS-rendered SPAs.
 - **Use `search` with `scrape: true`** to get full page content for each search result in one call instead of searching then scraping separately.
