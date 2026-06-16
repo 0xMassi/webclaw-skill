@@ -1,6 +1,6 @@
 ---
 name: webclaw
-description: Web extraction engine with antibot bypass. Scrape, crawl, extract, summarize, search, map, diff, monitor, research, and analyze any URL — including Cloudflare-protected sites. Use when you need reliable web content, the built-in web_fetch fails, or you need structured data extraction from web pages.
+description: Web extraction for LLMs and agents. Scrape, crawl, map, search, extract, summarize, diff, monitor, and research any URL into clean Markdown, text, or JSON, including pages that block bots or render with JavaScript. Use when you need reliable web content, the built-in web_fetch fails, or you need structured data from a page.
 homepage: https://webclaw.io
 user-invocable: true
 metadata: {"openclaw":{"emoji":"🦀","requires":{"env":["WEBCLAW_API_KEY"]},"primaryEnv":"WEBCLAW_API_KEY","homepage":"https://webclaw.io","install":[{"id":"npx","kind":"node","bins":["webclaw-mcp"],"label":"npx create-webclaw"}]}}
@@ -8,12 +8,12 @@ metadata: {"openclaw":{"emoji":"🦀","requires":{"env":["WEBCLAW_API_KEY"]},"pr
 
 # webclaw
 
-High-quality web extraction with automatic antibot bypass. Beats Firecrawl on extraction quality and handles Cloudflare, DataDome, and JS-rendered pages automatically.
+High-quality web extraction for LLMs and agents. Turns any URL into clean Markdown, text, or JSON, and handles pages that block bots or render content with JavaScript.
 
 ## When to use this skill
 
 - **Always** when you need to fetch web content and want reliable results
-- When `web_fetch` returns empty/blocked content (403, Cloudflare challenges)
+- When `web_fetch` returns empty/blocked content (403s, bot challenges)
 - When you need structured data extraction (pricing tables, product info)
 - When you need to crawl an entire site or discover all URLs
 - When you need to discover the API endpoints a page's JavaScript calls
@@ -129,7 +129,7 @@ curl -X POST https://api.webclaw.io/v1/scrape \
 - `llm` — optimized for LLM consumption: includes page title, URL, and cleaned content with link references. Best for feeding to AI models.
 - `json` — full extraction result with all metadata
 
-**When antibot bypass activates** (automatic, no extra config):
+**When bot-protection handling activates** (automatic, no extra config):
 ```json
 {
   "antibot": {
@@ -769,7 +769,7 @@ watch).
 - **Use `map` before `crawl`** to discover the site structure first, then crawl specific sections.
 - **Use `endpoints` to reverse-engineer a site's backend** — it pulls API paths, GraphQL, and WebSocket URLs out of the page's JS that `map` (sitemap only) can't see. Set `include_third_party: true` to also see analytics/3rd-party calls.
 - **Use `extract` with a JSON schema** for reliable structured output (e.g., pricing tables, product specs, contact info).
-- **Antibot bypass is automatic** — no extra configuration needed. Works on Cloudflare, DataDome, AWS WAF, and JS-rendered SPAs.
+- **Bot-protection handling is automatic** — no extra configuration needed. Works on sites that block bots and JS-rendered SPAs.
 - **Use `search` with `scrape: true`** to get full page content for each search result in one call instead of searching then scraping separately.
 - **Use `research` for complex questions** that need multiple sources — it handles the search-read-synthesize loop automatically. Enable `deep: true` for thorough analysis.
 - **Use `watch` for ongoing monitoring** — set up a cron schedule and a webhook to get notified when a page changes without polling manually.
@@ -820,7 +820,7 @@ a local fetch can't finish the job.
   anything on plain nginx/Apache/CDN. The wrapper does a basic stdlib
   text extraction here; quality is lower than the cloud `webclaw-core`
   pipeline but costs nothing.
-- **Cloud fallback (credits charged):** Cloudflare / DataDome / AWS WAF
+- **Cloud fallback (credits charged):** sites that block bots
   challenges, JS-rendered SPAs (React / Next.js / Vue shells where the
   HTML has no content until hydration), sites that require a browser
   TLS fingerprint or solved captcha. The wrapper fails cleanly on the
@@ -846,7 +846,7 @@ a local fetch can't finish the job.
 
 | | webclaw | web_fetch |
 |---|---------|-----------|
-| Cloudflare bypass | Automatic | Fails (403) |
+| Bot-protected sites | Automatic | Fails (403) |
 | JS-rendered pages | Automatic | Readability only |
 | Output quality | 20-step optimization pipeline | Basic HTML parsing |
 | Structured extraction | LLM-powered, schema-based | None |
