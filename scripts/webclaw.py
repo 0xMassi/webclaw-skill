@@ -45,10 +45,26 @@ API_BASE = "https://api.webclaw.io/v1"
 # re-validated by the SSRF guard, so this only bounds redirect loops.
 _MAX_REDIRECTS = 5
 
+# Cap the response body local_fetch will buffer (10 MB). Bounds memory on
+# pathological/huge pages; beyond this we give up on local extraction and
+# let the caller fall back to the cloud API.
+_MAX_BODY_BYTES = 10 * 1024 * 1024
+
 # Standard error shape printed to stderr before a non-zero exit.
 def _fail(message):
     print(f"Error: {message}", file=sys.stderr)
     sys.exit(1)
+
+
+def _require_positional(args, name):
+    """Return the first positional arg, or fail cleanly if it is missing.
+
+    A missing or flag-only first argument yields the standard `Error: ...`
+    shape instead of a raw IndexError traceback.
+    """
+    if not args or args[0].startswith("-"):
+        _fail(f"missing required argument: {name}")
+    return args[0]
 
 # --- Antibot detection patterns (ported from webclaw-server/src/antibot.rs) ---
 
@@ -337,7 +353,11 @@ def local_fetch(url):
         # Bound the redirect chain: urllib's default cap is 10; tighten it.
         if len(resp.url) and getattr(resp, "redirect_count", 0) > _MAX_REDIRECTS:
             raise SSRFError(f"too many redirects (> {_MAX_REDIRECTS})")
-        html_bytes = resp.read()
+        # Read at most _MAX_BODY_BYTES + 1 so an oversized body is detected
+        # without buffering the whole thing.
+        html_bytes = resp.read(_MAX_BODY_BYTES + 1)
+        if len(html_bytes) > _MAX_BODY_BYTES:
+            raise SSRFError(f"response body exceeds {_MAX_BODY_BYTES} bytes")
         # Try to detect encoding
         content_type = resp.headers.get("Content-Type", "")
         charset = "utf-8"
@@ -362,8 +382,8 @@ def smart_scrape(url, force_cloud=False, **api_kwargs):
     # Step 1: Try local fetch
     try:
         html_text, final_url = local_fetch(url)
-    except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
-        # Network error or HTTP error — try cloud
+    except (urllib.error.HTTPError, urllib.error.URLError, SSRFError, OSError) as e:
+        # Network error, HTTP error, or SSRF/size guard tripped — try cloud
         print(f"Local fetch failed ({e}), trying cloud API...", file=sys.stderr)
         return api("scrape", {"url": url, **api_kwargs})
 
@@ -393,7 +413,7 @@ def smart_scrape(url, force_cloud=False, **api_kwargs):
 # --- Commands ---
 
 def cmd_scrape(args):
-    url = args[0]
+    url = _require_positional(args, "<url>")
     fmt = "markdown"
     main_only = False
     no_cache = False
@@ -452,7 +472,7 @@ def cmd_scrape(args):
 
 
 def cmd_crawl(args):
-    url = args[0]
+    url = _require_positional(args, "<url>")
     depth = 3
     pages = 50
     sitemap = False
@@ -482,13 +502,13 @@ def cmd_crawl(args):
 
 
 def cmd_crawl_status(args):
-    job_id = args[0]
+    job_id = _require_positional(args, "<job_id>")
     result = api_get(f"crawl/{job_id}")
     print(json.dumps(result, indent=2))
 
 
 def cmd_map(args):
-    url = args[0]
+    url = _require_positional(args, "<url>")
     result = api("map", {"url": url})
     count = result.get("count", 0)
     print(f"Found {count} URLs:")
@@ -497,7 +517,7 @@ def cmd_map(args):
 
 
 def cmd_endpoints(args):
-    url = args[0]
+    url = _require_positional(args, "<url>")
     third_party = False
     max_bundles = None
 
@@ -546,6 +566,9 @@ def cmd_batch(args):
             urls.append(args[i])
             i += 1
 
+    if not urls:
+        _fail("missing required argument: <url1> [<url2> ...]")
+
     result = api("batch", {"urls": urls, "formats": [fmt]})
     for item in result.get("results", []):
         url = item.get("url", "?")
@@ -561,7 +584,7 @@ def cmd_batch(args):
 
 
 def cmd_extract(args):
-    url = args[0]
+    url = _require_positional(args, "<url>")
     prompt = None
     schema = None
 
@@ -590,7 +613,7 @@ def cmd_extract(args):
 
 
 def cmd_summarize(args):
-    url = args[0]
+    url = _require_positional(args, "<url>")
     sentences = None
 
     i = 1
@@ -610,7 +633,7 @@ def cmd_summarize(args):
 
 
 def cmd_diff(args):
-    url = args[0]
+    url = _require_positional(args, "<url>")
     prev_file = None
 
     i = 1
@@ -633,7 +656,7 @@ def cmd_diff(args):
 
 
 def cmd_brand(args):
-    url = args[0]
+    url = _require_positional(args, "<url>")
     result = api("brand", {"url": url})
     print(json.dumps(result.get("brand", result), indent=2))
 
