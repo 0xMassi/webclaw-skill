@@ -442,7 +442,7 @@ def cmd_scrape(args):
 
     source = result.get("_source", "cloud")
     if source == "local":
-        print(f"[local extraction - 0 credits used]", file=sys.stderr)
+        print("[local extraction - 0 credits used]", file=sys.stderr)
 
     content = result.get(fmt) or result.get("markdown") or result.get("text") or ""
     if content:
