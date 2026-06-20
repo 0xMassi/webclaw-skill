@@ -13,3 +13,9 @@ jobs:
           python-version: '3.12'
       - run: python -m py_compile scripts/webclaw.py
       - run: pipx run ruff check scripts/
+      - name: smoke - missing-arg guard
+        run: |
+          if python scripts/webclaw.py scrape --format 2>err.txt; then
+            echo "expected non-zero exit on missing url"; cat err.txt; exit 1
+          fi
+          grep -q '^Error:' err.txt
