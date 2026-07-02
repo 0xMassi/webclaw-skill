@@ -4,18 +4,16 @@ on:
     branches: [main]
   pull_request:
 jobs:
-  lint:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: python -m py_compile scripts/webclaw.py
-      - run: pipx run ruff check scripts/
-      - name: smoke - missing-arg guard
+      - name: validate SKILL.md
         run: |
-          if python scripts/webclaw.py scrape --format 2>err.txt; then
-            echo "expected non-zero exit on missing url"; cat err.txt; exit 1
-          fi
-          grep -q '^Error:' err.txt
+          f=skills/webclaw/SKILL.md
+          test -f "$f" || { echo "missing $f"; exit 1; }
+          head -1 "$f" | grep -qx -- '---' || { echo "no YAML frontmatter fence"; exit 1; }
+          grep -qx 'name: webclaw' "$f" || { echo "missing 'name: webclaw'"; exit 1; }
+          grep -q '^description: ' "$f" || { echo "missing description"; exit 1; }
+          grep -q 'npx create-webclaw' "$f" || { echo "missing install instruction"; exit 1; }
+          echo "SKILL.md OK"
