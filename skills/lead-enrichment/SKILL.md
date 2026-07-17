@@ -1,18 +1,51 @@
 ---
 name: lead-enrichment
-description: Turn a list of company domains into an enriched lead sheet using webclaw. Reads a CSV of websites and extracts company name, pitch, published contact email, socials, pricing model, target customer, and tech signals from each company's own site. Use when the user wants to enrich leads, build a prospect list, qualify companies from their websites, or asks for a "Clay alternative" without per-seat pricing. Costs about a dollar per 100 leads on the hosted API.
+description: Find and enrich B2B leads using webclaw. Start from a CSV of domains, a directory or "best tools" listing URL, or a plain-language ICP description — get back an enriched lead sheet with company name, pitch, published contact email, socials, pricing model, target customer, and tech signals extracted from each company's own site. Use when the user wants to find leads, enrich leads, build a prospect list, qualify companies from their websites, or asks for a "Clay alternative" without per-seat pricing. Costs about a dollar per 100 leads on the hosted API.
 homepage: https://webclaw.io
 user-invocable: true
 metadata: {"openclaw":{"emoji":"🎯","homepage":"https://webclaw.io"}}
 ---
 
-# Lead enrichment with webclaw
+# Lead finding + enrichment with webclaw
 
-Point this skill at a CSV of company websites and get back the same CSV with the columns a lead list actually needs: what the company does, who it sells to, a published contact email, socials, pricing model, and the tech it mentions. Everything comes from each company's own public site — no licensed contact database, no per-seat platform.
+Start from whatever the user has — a CSV, a listing URL, or just a description of who they sell to — and end with an enriched lead sheet: what each company does, who it sells to, a published contact email, socials, pricing model, and the tech it mentions. Everything comes from each company's own public pages — no licensed contact database, no per-seat platform.
 
 ## Prerequisites
 
 The [webclaw skill / MCP server](https://webclaw.io) (`npx create-webclaw`). For bulk runs, a `WEBCLAW_API_KEY` (free tier at webclaw.io works).
+
+## Pick the entry point by what the user has
+
+| The user has... | Do this |
+|---|---|
+| A CSV of domains | Enrich it directly (below) |
+| A listing URL — a directory, awesome-list, "best X tools" article, YC/PH category page | `find.py --url <listing>` → then enrich |
+| Just a description of their ICP | `find.py --query "..."` → review the found list with the user → then enrich |
+| A competitor name | `find.py --query "<competitor> alternatives"` → then enrich |
+| One target account to research deeply | Skip the scripts: `crawl` the site (depth 2), then `extract` a detailed profile from the key pages |
+
+## Finding leads (`scripts/find.py`)
+
+```bash
+# from a listing page you already know (repeatable --url)
+WEBCLAW_API_KEY=wc_... python3 scripts/find.py --url https://www.ycombinator.com/companies/industry/developer-tools
+
+# from a plain-language ICP — searches the web, harvests the listicles it finds
+WEBCLAW_API_KEY=wc_... python3 scripts/find.py --query "AI agent startups that read the web"
+```
+
+Writes `leads.csv` (name, website, one_liner, source), deduped across sources. "Best X tools" articles and directories are pre-curated lead lists — this harvests them. Note: directory pages (YC, PH) often yield profile URLs rather than company homepages; enrichment still works on those, but if the user wants homepage-level fields, extract the real website from each profile first.
+
+### Example: revenue-qualified leads from TrustMRR
+
+[trustmrr.com](https://trustmrr.com) is a public database of 15,000+ startups with payment-provider-verified revenue, and it is deliberately AI-friendly (llms.txt, per-startup `.md` pages, an AI API). Its category pages make excellent find sources, and profile pages enrich into revenue-qualified leads:
+
+```bash
+python3 scripts/find.py --url https://trustmrr.com/category/ai --out leads.csv
+python3 scripts/enrich.py leads.csv --schema revenue.json
+```
+
+with `revenue.json` asking for `monthly_revenue`, `founder_name`, `founder_x_handle`, and `actual_website`. Verified result in testing: MRR figures, founder names, X handles, and the startup's real site — a lead sheet where every row provably has revenue. If the user wants homepage-level fields too, run a second enrich pass over the `actual_website` column.
 
 ## Two paths
 
