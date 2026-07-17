@@ -32,6 +32,13 @@ See [`skills/webclaw/SKILL.md`](skills/webclaw/SKILL.md) for the full tool refer
 npx skills add 0xMassi/webclaw-skill
 ```
 
+## Skills in this repo
+
+| Skill | What it does |
+|---|---|
+| [`webclaw`](skills/webclaw/SKILL.md) | The full toolset: scrape, crawl, map, batch, extract, summarize, diff, brand, search, and 28 site-specific extractors. |
+| [`lead-enrichment`](skills/lead-enrichment/SKILL.md) | Turn a CSV of company domains into an enriched lead sheet (pitch, contact email, socials, pricing model, tech signals) — about a dollar per 100 leads. |
+
 ## Links
 
 - Homepage: https://webclaw.io

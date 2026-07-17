@@ -8,12 +8,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: validate SKILL.md
+      - name: validate all SKILL.md files
         run: |
-          f=skills/webclaw/SKILL.md
-          test -f "$f" || { echo "missing $f"; exit 1; }
-          head -1 "$f" | grep -qx -- '---' || { echo "no YAML frontmatter fence"; exit 1; }
-          grep -qx 'name: webclaw' "$f" || { echo "missing 'name: webclaw'"; exit 1; }
-          grep -q '^description: ' "$f" || { echo "missing description"; exit 1; }
-          grep -q 'npx create-webclaw' "$f" || { echo "missing install instruction"; exit 1; }
-          echo "SKILL.md OK"
+          found=0
+          for f in skills/*/SKILL.md; do
+            found=1
+            name=$(basename "$(dirname "$f")")
+            head -1 "$f" | grep -qx -- '---' || { echo "$f: no YAML frontmatter fence"; exit 1; }
+            grep -qx "name: $name" "$f" || { echo "$f: frontmatter name must be '$name'"; exit 1; }
+            grep -q '^description: ' "$f" || { echo "$f: missing description"; exit 1; }
+            echo "$f OK"
+          done
+          test "$found" = 1 || { echo "no skills found"; exit 1; }
+          # the core skill must keep its install instruction
+          grep -q 'npx create-webclaw' skills/webclaw/SKILL.md || { echo "webclaw skill: missing install instruction"; exit 1; }
+      - name: syntax-check bundled scripts
+        run: |
+          for s in skills/*/scripts/*.py; do
+            [ -e "$s" ] || continue
+            python3 -m py_compile "$s" && echo "$s OK"
+          done
