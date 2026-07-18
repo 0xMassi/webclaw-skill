@@ -36,8 +36,8 @@ npx skills add 0xMassi/webclaw-skill
 
 | Skill | What it does |
 |---|---|
-| [`webclaw`](skills/webclaw/SKILL.md) | The full toolset: scrape, crawl, map, batch, extract, summarize, diff, brand, search, and 28 site-specific extractors. |
-| [`lead-enrichment`](skills/lead-enrichment/SKILL.md) | Turn a CSV of company domains into an enriched lead sheet (pitch, contact email, socials, pricing model, tech signals) — about a dollar per 100 leads. |
+| [`webclaw`](skills/webclaw/SKILL.md) | The full toolset: scrape, crawl, map, batch, extract, summarize, diff, brand, search, research, lead / lead_batch enrichment, and 28 site-specific extractors. |
+| [`lead-enrichment`](skills/lead-enrichment/SKILL.md) | Discover companies (from a listing URL or an ICP) and enrich generic firmographics — pitch, contact email, socials, pricing model, tech signals, or any custom field — via `/v1/extract`. For founders/leadership + their LinkedIn/X, use the `lead` / `lead_batch` tools. |
 
 ## Links
 

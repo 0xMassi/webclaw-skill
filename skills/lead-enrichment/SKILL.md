@@ -1,6 +1,6 @@
 ---
 name: lead-enrichment
-description: Find and enrich B2B leads using webclaw. Start from a CSV of domains, a directory or "best tools" listing URL, or a plain-language ICP description — get back an enriched lead sheet with company name, pitch, published contact email, socials, pricing model, target customer, and tech signals extracted from each company's own site. Use when the user wants to find leads, enrich leads, build a prospect list, qualify companies from their websites, or asks for a "Clay alternative" without per-seat pricing. Costs about a dollar per 100 leads on the hosted API.
+description: Discover and qualify B2B leads using webclaw. Start from a CSV of domains, a directory or "best tools" listing URL, or a plain-language ICP description — get back an enriched sheet of firmographics (company name, pitch, published contact email, socials, pricing model, target customer, tech signals, or any custom field) read from each company's own site via /v1/extract. Use when the user wants to find/discover leads, build a prospect list, qualify companies from their websites, or asks for a "Clay alternative" without per-seat pricing. This is the discovery + firmographics half; for founders/leadership with their LinkedIn and X, use webclaw's `lead` / `lead_batch` tools instead. Billed per extract call, not per seat.
 homepage: https://webclaw.io
 user-invocable: true
 metadata: {"openclaw":{"emoji":"🎯","homepage":"https://webclaw.io"}}
@@ -9,6 +9,25 @@ metadata: {"openclaw":{"emoji":"🎯","homepage":"https://webclaw.io"}}
 # Lead finding + enrichment with webclaw
 
 Start from whatever the user has — a CSV, a listing URL, or just a description of who they sell to — and end with an enriched lead sheet: what each company does, who it sells to, a published contact email, socials, pricing model, and the tech it mentions. Everything comes from each company's own public pages — no licensed contact database, no per-seat platform.
+
+## What this skill does (and what it doesn't)
+
+This skill is the **discovery + firmographics** half of lead gen. It finds companies (from listings or an ICP) and reads generic facts off each company's own site via `/v1/extract` — pitch, a published contact email, socials, pricing model, target customer, tech signals, or **any custom field you define**. That flexible schema is its whole point.
+
+It does **not** recover people. For **founders/leadership with their LinkedIn and X**, use webclaw's dedicated tools (see the [webclaw skill](../webclaw/SKILL.md)):
+
+- **`lead`** — one company URL → a nested `lead` object with founders/leadership (`name`, `role`, `linkedin`, `x`) plus firmographics, from open-web search + verification. Flat **100 credits** per successful lead.
+- **`lead_batch`** — up to 25 URLs, blocks until done, returns per-URL results. **100 credits** per successful lead.
+
+Pick by what you need per company:
+
+| You want... | Use |
+|---|---|
+| Founders/leadership + their LinkedIn/X for outreach | `lead` / `lead_batch` (100 credits/lead) |
+| Custom qualification fields (`is_hiring`, `has_api`, pricing model, target customer, uses-competitor-X) | `enrich.py` here (`/v1/extract`, 25 credits/company) |
+| To find the companies in the first place | `find.py` here, then feed either path |
+
+A common flow: run `find.py` to build the list, then send it to `lead_batch` for contacts, or to `enrich.py` for custom firmographics — or both.
 
 ## Prerequisites
 
@@ -22,7 +41,7 @@ The [webclaw skill / MCP server](https://webclaw.io) (`npx create-webclaw`). For
 | A listing URL — a directory, awesome-list, "best X tools" article, YC/PH category page | `find.py --url <listing>` → then enrich |
 | Just a description of their ICP | `find.py --query "..."` → review the found list with the user → then enrich |
 | A competitor name | `find.py --query "<competitor> alternatives"` → then enrich |
-| One target account to research deeply | Skip the scripts: `crawl` the site (depth 2), then `extract` a detailed profile from the key pages |
+| One target account to research deeply | Skip the scripts: `crawl` the site (depth 2), then `extract` a detailed profile from the key pages — or call `lead` for its founders + contacts in one shot |
 
 ## Finding leads (`scripts/find.py`)
 
@@ -101,5 +120,5 @@ Examples that work well: `is_hiring`, `has_api`, `uses_competitor_x`, `recent_fu
 ## Notes
 
 - **Respect privacy law.** This extracts only what companies publish on their own sites, and it's the user's responsibility to use contact data lawfully (GDPR/CAN-SPAM). Enrich business sites, not personal pages.
-- Expect some empty `contact_email` fields — many companies publish none. That's signal too.
-- Rough cost on the hosted API: about a dollar per 100 leads.
+- Expect some empty `contact_email` fields — many companies publish none. That's signal too. `contact_email` here is a *published* mailbox off the site (e.g. `hello@company.com`), not a person — for founders and their profiles, use `lead` / `lead_batch`.
+- Cost: each company is one `/v1/extract` call (**25 credits**). Founder/contact recovery via the `lead` tool is separate and priced higher (a flat **100 credits** per lead), since it does the open-web people search on top. No per-seat pricing either way.

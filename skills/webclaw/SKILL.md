@@ -30,6 +30,7 @@ This downloads the `webclaw-mcp` binary and adds it to your agent's MCP config (
 - You need LLM-optimized content, cleaner than raw markdown.
 - You need a site-specific extractor (GitHub, Reddit, YouTube, npm, PyPI, Amazon).
 - You need to summarize, diff, or search the web.
+- You need to enrich a company URL — or a list of them — into outreach-ready leads: founders/leadership with their LinkedIn and X, plus summary, socials, pricing, tech, and on-site emails.
 
 ## Tools
 
@@ -73,11 +74,17 @@ No params. Returns each extractor's name and URL shape:
 ### `research`: deep multi-source research *(requires `WEBCLAW_API_KEY`)*
 `query`, `deep`, `topic`. Runs a search, read, and synthesize loop on the hosted engine and returns a cited report.
 
+### `lead`: turn one company URL into an outreach-ready lead *(requires `WEBCLAW_API_KEY`)*
+`url` (required), `no_cache` (default `false`). Enriches a single company. The response is `url`, `domain`, `people_source` (`web_search`), `cache` (`hit` | `miss`), and `credits` (100) at the top level, plus a nested **`lead`** object that holds everything about the company: `company_name`, `summary`, `socials` (`linkedin`, `x`, `github`), `tech`, `pricing` tiers (`plan`, `price`), on-site `emails` (`type`, `email`), and `people` — the founders/leadership as `name`, `role`, `linkedin`, `x`. The people come from open-web search + verification (anchored to the company's own domain, name-validated), not a licensed contact database. Does **not** return funding, HQ, phone, or guessed emails. Very new sites and solo founders may return fewer people, or none. Flat 100 credits per successful lead; a site that can't be reached and has no public people isn't charged.
+
+### `lead_batch`: enrich many company URLs in one call *(requires `WEBCLAW_API_KEY`)*
+`urls` (array, 1–25 companies), `no_cache` (default `false`). Runs `lead` across the whole list. The job is async on the server, but this tool **polls internally and blocks until it finishes**, then returns the final job: `id`, `status` (`completed`), `total`, `completed`, `succeeded`, `credits_charged`, and `results` — one entry per URL, either `{ url, status: "success", domain, lead, cache }` (same nested `lead` object as above) or `{ url, status: "error", error }`. Billed 100 credits per **successful** lead; URLs that can't be enriched (unreachable, nothing found) aren't charged. Up to 25 URLs per call. To discover the companies to feed it, pair with the **lead-enrichment** skill's `find.py`.
+
 ## Which tools need a key?
 
 | Works with no key (runs locally) | Needs `WEBCLAW_API_KEY` (hosted) |
 |---|---|
-| `scrape`, `crawl`, `map`, `batch`, `extract`, `summarize`, `diff`, `brand`, `vertical_scrape`, `list_extractors` | `research` |
+| `scrape`, `crawl`, `map`, `batch`, `extract`, `summarize`, `diff`, `brand`, `vertical_scrape`, `list_extractors` | `research`, `lead`, `lead_batch` |
 | `search` (uses your own `SERPER_API_KEY`; hosted fallback if unset) | escalation for bot-protected and JavaScript-rendered pages |
 
 ## LLM setup (for `extract` and `summarize`)
