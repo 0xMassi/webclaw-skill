@@ -20,8 +20,8 @@ jobs:
             echo "$f OK"
           done
           test "$found" = 1 || { echo "no skills found"; exit 1; }
-          # the core skill must keep its install instruction
-          grep -q 'npx create-webclaw' skills/webclaw/SKILL.md || { echo "webclaw skill: missing install instruction"; exit 1; }
+          # the core skill must keep an install instruction (accept any canonical form)
+          grep -Eq 'npx (create-webclaw|-y @webclaw/mcp|skills add )' skills/webclaw/SKILL.md || { echo "webclaw skill: missing install instruction"; exit 1; }
       - name: syntax-check bundled scripts
         run: |
           for s in skills/*/scripts/*.py; do

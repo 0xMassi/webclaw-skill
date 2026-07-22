@@ -16,7 +16,7 @@ Web extraction for AI agents, powered by a local Rust engine. It turns any URL i
 npx create-webclaw
 ```
 
-This downloads the `webclaw-mcp` binary and adds it to your agent's MCP config (Claude Code, Cursor, Windsurf, Codex, Antigravity, and more). Restart the agent to load the tools below.
+This writes the `npx @webclaw/mcp` MCP config into your agent (Claude Code, Cursor, Windsurf, Codex, Antigravity, and more) — nothing to install; the server is fetched and cached on first launch. Restart the agent to load the tools below.
 
 - **No key needed.** Extraction runs on your machine: free, private, and unlimited for the common case. Static sites, docs, blogs, server-rendered pages, and product pages all work locally.
 - **Optional upgrade.** Set `WEBCLAW_API_KEY` (from https://webclaw.io) and webclaw escalates to the hosted engine for the pages local extraction can't finish: bot-protected sites and JavaScript-rendered SPAs. Without a key, those pages return a clear message that tells you how to unlock them.
