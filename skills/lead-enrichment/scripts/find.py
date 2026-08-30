@@ -27,6 +27,7 @@ API = "https://api.webclaw.io/v1"
 
 # Discussion platforms, not listing pages — skipped in --query mode.
 SKIP_HOSTS = ("reddit.com", "youtube.com", "x.com", "twitter.com", "linkedin.com", "news.ycombinator.com")
+CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 LISTING_SCHEMA = {
     "type": "object",
@@ -79,6 +80,17 @@ def looks_like_url(value):
     return True
 
 
+def host_matches(host, suffix):
+    """Match a hostname itself or a real subdomain, never a lookalike suffix."""
+    return host == suffix or host.endswith(f".{suffix}")
+
+
+def csv_safe(value):
+    """Prevent spreadsheet formula execution when a CSV is opened interactively."""
+    text = "" if value is None else str(value)
+    return f"'{text}" if text.startswith(CSV_FORMULA_PREFIXES) else text
+
+
 def companies_from_listing(api_key, url):
     data, err = call(api_key, "extract", {"url": url, "schema": LISTING_SCHEMA})
     if err:
@@ -110,7 +122,7 @@ def listing_urls_from_query(api_key, query, max_sources):
     for r in data.get("results", []):
         url = r.get("url") or ""
         host = urlparse(url).netloc.lower()
-        if any(host.endswith(s) for s in SKIP_HOSTS):
+        if any(host_matches(host, suffix) for suffix in SKIP_HOSTS):
             continue
         urls.append(url)
         if len(urls) >= max_sources:
@@ -155,7 +167,9 @@ def main():
     with open(args.out, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["name", "website", "one_liner", "source"])
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(
+            {key: csv_safe(value) for key, value in row.items()} for row in rows
+        )
 
     missing = sum(1 for r in rows if not r["website"])
     print(f"done -> {args.out} ({len(rows)} unique companies, {missing} without a usable website URL)")

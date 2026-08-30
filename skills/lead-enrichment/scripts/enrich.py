@@ -47,6 +47,7 @@ DEFAULT_SCHEMA = {
 }
 
 URL_COLUMNS = ("website", "domain", "url", "website_url", "company_url", "site")
+CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 
 def find_url_column(fieldnames):
@@ -93,6 +94,12 @@ def flatten(value):
     if isinstance(value, list):
         return "; ".join(str(v) for v in value)
     return "" if value is None else str(value)
+
+
+def csv_safe(value):
+    """Prevent spreadsheet formula execution when a CSV is opened interactively."""
+    text = "" if value is None else str(value)
+    return f"'{text}" if text.startswith(CSV_FORMULA_PREFIXES) else text
 
 
 def main():
@@ -145,7 +152,7 @@ def main():
             for col in enrich_cols:
                 row[col] = flatten(data.get(col))
             row["enrich_error"] = err
-            writer.writerow(row)
+            writer.writerow({key: csv_safe(value) for key, value in row.items()})
             done += 1
             status = "ok" if not err else err
             print(f"  [{done}/{len(rows)}] {row.get(url_col, '')[:40]:40} {status}")

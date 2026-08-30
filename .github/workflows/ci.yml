@@ -3,11 +3,13 @@ on:
   push:
     branches: [main]
   pull_request:
+permissions:
+  contents: read
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: validate all SKILL.md files
         run: |
           found=0
@@ -28,3 +30,5 @@ jobs:
             [ -e "$s" ] || continue
             python3 -m py_compile "$s" && echo "$s OK"
           done
+      - name: test bundled scripts
+        run: python3 -m unittest discover -s tests -v
