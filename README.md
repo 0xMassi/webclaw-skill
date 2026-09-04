@@ -32,6 +32,21 @@ See [`skills/webclaw/SKILL.md`](skills/webclaw/SKILL.md) for the full tool refer
 npx skills add 0xMassi/webclaw-skill
 ```
 
+## Cursor plugin
+
+This repository also packages webclaw as a Cursor plugin. The plugin starts
+`@webclaw/mcp@0.6.22`, loads the webclaw skill, and accepts an optional
+`WEBCLAW_API_KEY` through Cursor's plugin settings.
+
+Test a local checkout before marketplace submission:
+
+```bash
+ln -s /path/to/webclaw-skill ~/.cursor/plugins/local/webclaw
+```
+
+Reload Cursor, open **Customize**, and configure the plugin. Local extraction
+works without a key. Add a key for hosted search, research, and protected pages.
+
 ## Skills in this repo
 
 | Skill | What it does |

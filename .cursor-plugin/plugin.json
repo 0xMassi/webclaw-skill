@@ -1,0 +1,33 @@
+{
+  "name": "webclaw",
+  "version": "0.1.0",
+  "description": "Web scraping, search, crawling, and structured extraction for Cursor agents through MCP.",
+  "author": {
+    "name": "webclaw"
+  },
+  "homepage": "https://webclaw.io",
+  "repository": "https://github.com/0xMassi/webclaw-skill",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "web-scraping",
+    "mcp",
+    "research",
+    "extraction"
+  ],
+  "logo": "assets/logo.svg",
+  "skills": [
+    "./skills/webclaw"
+  ],
+  "mcpServers": "./mcp.json",
+  "variables": {
+    "type": "object",
+    "properties": {
+      "WEBCLAW_API_KEY": {
+        "type": "string",
+        "title": "Webclaw API key",
+        "description": "Optional key for cloud extraction, search, research, and protected websites.",
+        "default": ""
+      }
+    }
+  }
+}
