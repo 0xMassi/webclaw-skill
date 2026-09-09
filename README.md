@@ -51,8 +51,8 @@ works without a key. Add a key for hosted search, research, and protected pages.
 
 | Skill | What it does |
 |---|---|
-| [`webclaw`](skills/webclaw/SKILL.md) | The full toolset: scrape, crawl, map, batch, extract, summarize, diff, brand, search, research, lead / lead_batch enrichment, and 28 site-specific extractors. |
-| [`lead-enrichment`](skills/lead-enrichment/SKILL.md) | Discover companies (from a listing URL or an ICP) and enrich generic firmographics — pitch, contact email, socials, pricing model, tech signals, or any custom field — via `/v1/extract`. For founders/leadership + their LinkedIn/X, use the `lead` / `lead_batch` tools. |
+| [`webclaw`](skills/webclaw/SKILL.md) | The full toolset: scrape, crawl, map, batch, extract, summarize, diff, brand, search, research, and 28 site-specific extractors. |
+| [`lead-enrichment`](skills/lead-enrichment/SKILL.md) | Discover companies (from a listing URL or an ICP) and enrich generic firmographics — pitch, contact email, socials, pricing model, tech signals, or any custom field — via `/v1/extract`. |
 
 ## Links
 
